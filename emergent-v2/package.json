@@ -1,0 +1,14 @@
+{
+  "devDependencies": {
+    "wrangler": "4.151.0"
+  },
+  "name": "telecontinent-hr-desk-v2-review",
+  "private": true,
+  "scripts": {
+    "build": "node tools/build-secure-app.js",
+    "dev": "wrangler dev --local -c wrangler.dev.jsonc --ip 127.0.0.1",
+    "db:local": "wrangler d1 migrations apply hrdesk-dev --local -c wrangler.dev.jsonc",
+    "test": "node --test tests/*.test.mjs",
+    "check:worker": "wrangler deploy --dry-run -c wrangler.dev.jsonc --outdir .wrangler/dry-run"
+  }
+}

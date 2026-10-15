@@ -1,0 +1,39 @@
+{
+  // Telecontinent HR Desk — production Worker (protected by Cloudflare Access)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "telecontinent-hr-desk",
+  "main": "worker.js",
+  "compatibility_date": "2025-01-01",
+  "assets": { "directory": "./secure-app", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "telecontinent-hr-desk-db", "database_id": "7080900a-e621-4ad2-a3ac-c93c659c6a70", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "DOCS", "bucket_name": "telecontinent-hr-desk-docs" }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "TEAM_DOMAIN": "REPLACE_WITH_YOUR_TEAM.cloudflareaccess.com",
+    "POLICY_AUD": "REPLACE_WITH_ACCESS_APPLICATION_AUD_TAG",
+    "ALLOWED_DOMAIN": "telecontinent.com.my",
+    "ADMIN_EMAILS": "REPLACE_WITH_YOUR_GMAIL_ADMIN@gmail.com"
+  },
+  "env": {
+    // Staging: separate Worker + separate D1 + separate R2. Create them first (see docs/DEPLOYMENT.md).
+    "staging": {
+      "name": "telecontinent-hr-desk-staging",
+      "assets": { "directory": "./secure-app", "binding": "ASSETS", "run_worker_first": true },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "telecontinent-hr-desk-db-staging", "database_id": "REPLACE_WITH_STAGING_D1_ID", "migrations_dir": "migrations" }
+      ],
+      "r2_buckets": [ { "binding": "DOCS", "bucket_name": "telecontinent-hr-desk-docs-staging" } ],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "TEAM_DOMAIN": "REPLACE_WITH_YOUR_TEAM.cloudflareaccess.com",
+        "POLICY_AUD": "REPLACE_WITH_STAGING_ACCESS_AUD_TAG",
+        "ALLOWED_DOMAIN": "telecontinent.com.my",
+        "ADMIN_EMAILS": "REPLACE_WITH_YOUR_GMAIL_ADMIN@gmail.com"
+      }
+    }
+  }
+}

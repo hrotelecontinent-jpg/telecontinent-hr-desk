@@ -1,0 +1,131 @@
+{
+  "archive_sha256": "5f482a1e0df7c7823d58e83f45c4590343d57d43aee751e8177ac643a6f6c052",
+  "files": [
+    {
+      "path": ".gitignore",
+      "source_sha256": "541ccbe0567846f4fcf29d564faccd28ee62d8eba69ac2c6b06da22299304d12",
+      "import_sha256": "541ccbe0567846f4fcf29d564faccd28ee62d8eba69ac2c6b06da22299304d12",
+      "changed_for_review": false
+    },
+    {
+      "path": "README.md",
+      "source_sha256": "a9084989f5f33e4f05e4402eb1543e7bccb60e4e77c36640eb712b9433897350",
+      "import_sha256": "a9084989f5f33e4f05e4402eb1543e7bccb60e4e77c36640eb712b9433897350",
+      "changed_for_review": false
+    },
+    {
+      "path": "backup/original/Telecontinent_HR_Desk_ORIGINAL_UNCHANGED.html",
+      "source_sha256": "5278f0c8cc12b3257b19ecdd0698bc18125a16d5cf1becba6b2fc740265996cf",
+      "import_sha256": "83d662d677552d0c34e56574463ca2c0e8798465d6b9a332d6c92dd80e23faa7",
+      "changed_for_review": true
+    },
+    {
+      "path": "docs/CHANGES.md",
+      "source_sha256": "3fdc9845ac5475278ad715260341fd0dcaa8c7dd43633b8309bcee1f99c4caf1",
+      "import_sha256": "3fdc9845ac5475278ad715260341fd0dcaa8c7dd43633b8309bcee1f99c4caf1",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/DEPLOYMENT.md",
+      "source_sha256": "0984476f4d5de9c7d591b611a2a2e3379fd4a04f2227a3e3899bfae2baae3587",
+      "import_sha256": "0984476f4d5de9c7d591b611a2a2e3379fd4a04f2227a3e3899bfae2baae3587",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/FEATURE_MATRIX.md",
+      "source_sha256": "9f58c22880186c0e76adcc8fefe1db0f941108b47e20ac907afa781bcfedbfb4",
+      "import_sha256": "9f58c22880186c0e76adcc8fefe1db0f941108b47e20ac907afa781bcfedbfb4",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/MOVEMENT_REGISTER.md",
+      "source_sha256": "7007736040b7b5bdb014ee4e9145b338e3899f8fcfde9c9d7c98566b5c054dd8",
+      "import_sha256": "7007736040b7b5bdb014ee4e9145b338e3899f8fcfde9c9d7c98566b5c054dd8",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/TEST_RESULTS.md",
+      "source_sha256": "a8e170fd08987d6cddb2c54d8423a7b8bb24618973ff1ee437d8b5be67b596b0",
+      "import_sha256": "a8e170fd08987d6cddb2c54d8423a7b8bb24618973ff1ee437d8b5be67b596b0",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/approval.docx",
+      "source_sha256": "9cf28a7c3ccf33a8948b7705ac1762803ad3b84af21f588e0db08d5fdcd59f00",
+      "import_sha256": "9cf28a7c3ccf33a8948b7705ac1762803ad3b84af21f588e0db08d5fdcd59f00",
+      "changed_for_review": false
+    },
+    {
+      "path": "docs/letters.docx",
+      "source_sha256": "ddf8858a70347bb9b914c0a33d9220cd39ce253429aa92f604224aea477275d7",
+      "import_sha256": "ddf8858a70347bb9b914c0a33d9220cd39ce253429aa92f604224aea477275d7",
+      "changed_for_review": false
+    },
+    {
+      "path": "migrations/0001_hrdesk_v2_core.sql",
+      "source_sha256": "1eb5b28ab350e6f9e7bc65f07eb8d5744b18ae025f6c2b61ff82b90e744a41c7",
+      "import_sha256": "1eb5b28ab350e6f9e7bc65f07eb8d5744b18ae025f6c2b61ff82b90e744a41c7",
+      "changed_for_review": false
+    },
+    {
+      "path": "secure-app/index.html",
+      "source_sha256": "2b966057275aa02113b1a870f5fc1b3599ac58065ba3d0af35261615f624c3e3",
+      "import_sha256": "9e2dd6d0a79bcb6813dd96aadb887214064a7ef4e2d7935d65c5a0011d7360c9",
+      "changed_for_review": true
+    },
+    {
+      "path": "secure-app-src/v2.js",
+      "source_sha256": "e6f305f1af40d6e0fbb996b3fbc31b6fb17de1a2e74cafddb4fb8f2f88c65fd5",
+      "import_sha256": "318fae8357c43b33924536e61f3314f3feadb635c85f385f9d95b8abd9fc500b",
+      "changed_for_review": true
+    },
+    {
+      "path": "secure-app-src/v2letters.js",
+      "source_sha256": "2cebbc1d8b739dd4bebce3fe213d0a99ac11e5a6a1a08faf5f4e5b60025071b6",
+      "import_sha256": "2cebbc1d8b739dd4bebce3fe213d0a99ac11e5a6a1a08faf5f4e5b60025071b6",
+      "changed_for_review": false
+    },
+    {
+      "path": "seed.js",
+      "source_sha256": "c41480fe41eee2251638683d9b5bae19773eff95fcf61323f66823d47f42184c",
+      "import_sha256": "c41480fe41eee2251638683d9b5bae19773eff95fcf61323f66823d47f42184c",
+      "changed_for_review": false
+    },
+    {
+      "path": "tests/api.test.mjs",
+      "source_sha256": "45df3921977a979ebe8d8957af0cb91d8a3e84a453d1d9acdb552d09266590da",
+      "import_sha256": "a2b670eb37515f76e435ea2b5a1dff935593cb9f48d491f3b9e76480b497e7ac",
+      "changed_for_review": true
+    },
+    {
+      "path": "tools/build-secure-app.js",
+      "source_sha256": "dd727c33528c8effaeef17c93e88ce1b7ab2c722bb14cd880b8a21cd716f6dfc",
+      "import_sha256": "2c1883d32bdaca3b7131b23d923259be9e312117535e1d5c2b9814f831a2ca3f",
+      "changed_for_review": true
+    },
+    {
+      "path": "tools/gen-register.mjs",
+      "source_sha256": "818b398bf6708344359d390141c569b49cca99fe5972becb8bde03258e6286b2",
+      "import_sha256": "818b398bf6708344359d390141c569b49cca99fe5972becb8bde03258e6286b2",
+      "changed_for_review": false
+    },
+    {
+      "path": "worker.js",
+      "source_sha256": "f0e0226ff4334e174976961b032de04e46448f85e5189af40c9f9930d84f3742",
+      "import_sha256": "a1559d0ee8095218a5b8bf0e82172843b6067ce29ea66b1fefc0b14c0a6f0f53",
+      "changed_for_review": true
+    },
+    {
+      "path": "wrangler.dev.jsonc",
+      "source_sha256": "06300cc77ccaa356156b8ef11e3e8c590ab200dd4467a67b8c8796691654ffc5",
+      "import_sha256": "06300cc77ccaa356156b8ef11e3e8c590ab200dd4467a67b8c8796691654ffc5",
+      "changed_for_review": false
+    },
+    {
+      "path": "wrangler.jsonc",
+      "source_sha256": "a83ded0ec6808e42dde80f993a733931f0f0efbb8547721493045c38a898f0be",
+      "import_sha256": "a83ded0ec6808e42dde80f993a733931f0f0efbb8547721493045c38a898f0be",
+      "changed_for_review": false
+    }
+  ]
+}
