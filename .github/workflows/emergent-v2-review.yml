@@ -1,0 +1,47 @@
+name: Emergent v2 local validation
+on:
+  pull_request:
+    paths: ['emergent-v2/**', '.github/workflows/emergent-v2-review.yml']
+  push:
+    branches: [emergent-v2-review]
+    paths: ['emergent-v2/**', '.github/workflows/emergent-v2-review.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: emergent-v2
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+      BASE: http://127.0.0.1:8787
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: emergent-v2/package-lock.json
+      - run: npm ci
+      - run: npm run build && git diff --exit-code -- secure-app/index.html
+      - run: npm run db:local
+      - name: Start local simulators and verify development readiness
+        run: |
+          npm run dev > "$RUNNER_TEMP/hrdesk-local.log" 2>&1 &
+          node --input-type=module <<'JS'
+          const deadline=Date.now()+60000;
+          while(Date.now()<deadline){
+            try { const r=await fetch(process.env.BASE+'/api/health');const j=await r.json();if(r.ok&&j.environment==='development'&&j.db)process.exit(0); } catch {}
+            await new Promise(r=>setTimeout(r,1000));
+          }
+          throw Error('Local development server did not become ready');
+          JS
+      - run: npm test
+      - run: python3 -m unittest discover -s tests -p '*_test.py' -v
+      - run: npm ci --prefix tools/browser-tooling
+      - name: Validate browser, all forms and signed letter output
+        run: NODE_PATH="$PWD/tools/browser-tooling/node_modules" node tools/browser-smoke.cjs
+      - run: npm run check:worker
+      - run: npm audit --audit-level=moderate

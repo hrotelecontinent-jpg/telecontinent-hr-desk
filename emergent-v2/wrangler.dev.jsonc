@@ -1,0 +1,10 @@
+{
+  // LOCAL DEVELOPMENT ONLY. Fictional test accounts (DEV_AUTH). Never deploy this file.
+  "name": "telecontinent-hr-desk-dev",
+  "main": "worker.js",
+  "compatibility_date": "2025-01-01",
+  "assets": { "directory": "./secure-app", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [ { "binding": "DB", "database_name": "hrdesk-dev", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" } ],
+  "r2_buckets": [ { "binding": "DOCS", "bucket_name": "hrdesk-dev-docs" } ],
+  "vars": { "ENVIRONMENT": "development", "DEV_AUTH": "1", "ALLOWED_DOMAIN": "telecontinent.com.my", "ADMIN_EMAILS": "" }
+}
