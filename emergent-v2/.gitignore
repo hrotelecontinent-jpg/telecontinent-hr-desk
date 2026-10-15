@@ -1,3 +1,7 @@
 node_modules/
 .wrangler/
 *.sqlite
+__pycache__/
+*.pyc
+.env*
+.dev.vars*

@@ -4,14 +4,14 @@
     {
       "path": ".gitignore",
       "source_sha256": "541ccbe0567846f4fcf29d564faccd28ee62d8eba69ac2c6b06da22299304d12",
-      "import_sha256": "541ccbe0567846f4fcf29d564faccd28ee62d8eba69ac2c6b06da22299304d12",
-      "changed_for_review": false
+      "import_sha256": "28bc2e7f6bd9a3262b2df4ff4a4b75c01056fedd913db747482cf6bf99a9039c",
+      "changed_for_review": true
     },
     {
       "path": "README.md",
       "source_sha256": "a9084989f5f33e4f05e4402eb1543e7bccb60e4e77c36640eb712b9433897350",
-      "import_sha256": "a9084989f5f33e4f05e4402eb1543e7bccb60e4e77c36640eb712b9433897350",
-      "changed_for_review": false
+      "import_sha256": "754c0d674c7550f18e768bff03e73f86a789d03a0062439a19d86c22d8e7bd09",
+      "changed_for_review": true
     },
     {
       "path": "backup/original/Telecontinent_HR_Desk_ORIGINAL_UNCHANGED.html",
@@ -70,13 +70,13 @@
     {
       "path": "secure-app/index.html",
       "source_sha256": "2b966057275aa02113b1a870f5fc1b3599ac58065ba3d0af35261615f624c3e3",
-      "import_sha256": "9e2dd6d0a79bcb6813dd96aadb887214064a7ef4e2d7935d65c5a0011d7360c9",
+      "import_sha256": "55ee149c11e0283bf0f66bf483816a6eded337af8c10c62b2a8dbfe542559029",
       "changed_for_review": true
     },
     {
       "path": "secure-app-src/v2.js",
       "source_sha256": "e6f305f1af40d6e0fbb996b3fbc31b6fb17de1a2e74cafddb4fb8f2f88c65fd5",
-      "import_sha256": "318fae8357c43b33924536e61f3314f3feadb635c85f385f9d95b8abd9fc500b",
+      "import_sha256": "c4dbf205a60b6f2174e88df290783a148fe2f364f908bc1a02c9e74818ae3489",
       "changed_for_review": true
     },
     {
@@ -94,13 +94,13 @@
     {
       "path": "tests/api.test.mjs",
       "source_sha256": "45df3921977a979ebe8d8957af0cb91d8a3e84a453d1d9acdb552d09266590da",
-      "import_sha256": "a2b670eb37515f76e435ea2b5a1dff935593cb9f48d491f3b9e76480b497e7ac",
+      "import_sha256": "316b40ae923c9cacc9e5590a71c6f0c562471ad5087c4582ace1065f9337dabd",
       "changed_for_review": true
     },
     {
       "path": "tools/build-secure-app.js",
       "source_sha256": "dd727c33528c8effaeef17c93e88ce1b7ab2c722bb14cd880b8a21cd716f6dfc",
-      "import_sha256": "2c1883d32bdaca3b7131b23d923259be9e312117535e1d5c2b9814f831a2ca3f",
+      "import_sha256": "25608326775fff6b2021cbf4122829979324ea80189d9c15b543392e9507ac3a",
       "changed_for_review": true
     },
     {
@@ -112,7 +112,7 @@
     {
       "path": "worker.js",
       "source_sha256": "f0e0226ff4334e174976961b032de04e46448f85e5189af40c9f9930d84f3742",
-      "import_sha256": "a1559d0ee8095218a5b8bf0e82172843b6067ce29ea66b1fefc0b14c0a6f0f53",
+      "import_sha256": "46f32933b3d75ae9df8dfdb55ccbc3df03a437afc376640ab910f66d0328ca20",
       "changed_for_review": true
     },
     {

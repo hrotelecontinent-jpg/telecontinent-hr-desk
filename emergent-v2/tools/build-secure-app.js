@@ -29,7 +29,10 @@ for (const [from, to] of patches) {
   html = typeof from === "string" ? html.replace(from, () => to) : html.replace(from, () => to);
 }
 if (/data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAvgAAADqCAYAAADXozFa/.test(html)) { console.error("Signature image still present"); process.exit(1); }
-const helper = 'async function v1Sig(ref){LH_SIG="";try{const s=await capi("sig?ref="+encodeURIComponent(ref));if(s.available){LH_SIG=s.dataUrl;setTimeout(()=>{LH_SIG=""},2000);return true}}catch(e){}toast("The preserved signature must be configured in private storage before final letters can be generated.");return false}';
+const csvExpression = 'String(x==null?"":x).replace(/"/g,\'""\')';
+if (html.split(csvExpression).length - 1 !== 2) throw new Error("Original CSV export patches must match twice");
+html = html.split(csvExpression).join('csvCell(x).replace(/"/g,\'""\')');
+const helper = 'function csvCell(value){let s=String(value==null?"":value);return typeof value==="string"&&/^[\\s\\u0000-\\u001f]*[=+@-]/.test(s)?"\'"+s:s} async function v1Sig(ref){LH_SIG="";try{const s=await capi("sig?ref="+encodeURIComponent(ref));if(s.available){LH_SIG=s.dataUrl;setTimeout(()=>{LH_SIG=""},2000);return true}}catch(e){}toast("The preserved signature must be configured in private storage before final letters can be generated.");return false}';
 const css = '<style>.hwrap{flex-wrap:wrap}.v2nav{display:flex;flex-wrap:wrap;gap:2px;flex-basis:100%;order:10;margin-top:4px;border-top:1px solid rgba(255,255,255,.2);padding-top:4px}.v2nav button{font-size:12px}.kpi:hover{box-shadow:0 2px 8px rgba(0,0,0,.12)}#devsw{background:#C55A11;color:#fff;border:0;border-radius:4px;font-size:11px;margin-right:6px;max-width:260px}</style>';
 const read = (f) => fs.readFileSync(path.join(root, "secure-app-src", f), "utf8").replace(/<\/script/gi, "<\\/script");
 html = html.replace(/<\/body><\/html>\s*$/, () => css + "<script>" + helper + "</script><script>" + read("v2letters.js") + "</script><script>" + read("v2.js") + "</script></body></html>\n");

@@ -3,6 +3,7 @@
 //   BASE=http://127.0.0.1:8787 node --test tests/
 import test from "node:test";
 import assert from "node:assert/strict";
+import { zipSync, strToU8 } from "fflate";
 const BASE = process.env.BASE || "http://127.0.0.1:8787";
 const target = new URL(BASE);
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname), 'API tests are restricted to local simulators');
@@ -16,8 +17,11 @@ async function call(who, path, opt = {}) {
   const ct = r.headers.get("content-type") || ""; return { s: r.status, j: ct.includes("json") ? await r.json() : null, r };
 }
 const ok = (x, m) => { assert.ok(x.s >= 200 && x.s < 300, (m || "") + " -> " + x.s + " " + JSON.stringify(x.j)); return x.j; };
-const DOCX = () => new Blob([new Uint8Array([80, 75, 3, 4, 0, 0])], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-async function uploadDoc(who, txn, kind, name = "TEST_form.docx") { const f = new FormData(); f.append("file", DOCX(), name); f.append("kind", kind); if (txn) f.append("txn_id", txn); return ok(await call(who, "/api/v2/docs", { body: f }), "upload"); }
+const DOCX = () => new Blob([zipSync({"[Content_Types].xml":strToU8('<Types/>'),"word/document.xml":strToU8('<document/>')})],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+async function uploadDoc(who, txn, kind, name = "TEST_form.docx") {
+  const file=name.endsWith('.eml') ? new Blob(['Subject: TEST approval\r\n\r\nFictional evidence'],{type:'message/rfc822'}) : name.endsWith('.pdf') ? new Blob(['%PDF-1.4\n% TEST ONLY'],{type:'application/pdf'}) : DOCX();
+  const f = new FormData(); f.append("file", file, name); f.append("kind", kind); if (txn) f.append("txn_id", txn); return ok(await call(who, "/api/v2/docs", { body: f }), "upload");
+}
 async function txn(who, code, data) { return ok(await call(who, "/api/v2/txns", { body: { movement_code: code, data: Object.assign({ emp_name: "TEST_Employee " + Math.random().toString(36).slice(2, 7), emp_id: "TEST" + Date.now() % 100000, cur_project: "TEST_ProjectA", effective_date: "2026-11-01" }, data || {}), extracted: { emp_name: "TEST_Wrong Name" } } })); }
 async function full(who, id) { return ok(await call(who, "/api/v2/txns/" + id)); }
 async function approveAll(id) {
@@ -160,6 +164,8 @@ test("legacy (original HR Desk) sync contract and server-side letter rules", asy
   const s1 = ok(await call(U.sp1, "/api/sync", { body: { put: [{ t: "case", id, ver: 0, data: c }], del: [] } }));
   assert.equal(s1.ok[0].data.draft.em, U.sp1, "preparer identity stamped by the server");
   const d = ok(await call(U.sp2, "/api/data?since=0")); assert.ok(d.rows.some((r) => r.id === id), "visible to another HR user");
+  c.draft={...s1.ok[0].data.draft,status:'approved'};
+  ok(await call(U.norwana,'/api/sync',{body:{put:[{t:'case',id,ver:1,data:c}]}}));
   const letter = { ref: "TC/HR/PRO/2026/999/AS", caseId: id, lid: "mvpro", emp: "TEST_Legacy" };
   const bad = ok(await call(U.hairul, "/api/sync", { body: { put: [{ t: "letter", id: letter.ref + "|" + id, ver: 0, data: letter }] } }));
   assert.equal(bad.ok.length, 0); assert.ok(bad.notes.length, "HR Manager is not the default vetter for specialist letters");
@@ -178,4 +184,68 @@ test("delegation lets an authorised user vet for Norwana; never own letter", asy
   ok(await call(U.sp1, `/api/v2/letters/${L.id}/action`, { body: { action: "submit", ver: l.ver } })); l = (await full(U.sp1, t.id)).letters[0];
   ok(await call(U.sp2, `/api/v2/letters/${L.id}/action`, { body: { action: "release", ver: l.ver } }));
   ok(await call(U.norwana, `/api/v2/admin/delegations/${dl.id}/revoke`, { body: {} }));
+});
+
+test('restricted records stay hidden across approvals, audit, reports, dashboard and key-date writes', async () => {
+  const t = await validated('G_SUSPEND', { emp_name: 'TEST_RESTRICTED_BOUNDARY' });
+  const x = await full(U.sp1,t.id);
+  const pending=ok(await call(U.sp2,'/api/v2/approvals/mine'));
+  assert.ok(!pending.rows.some(r=>r.txn_id===t.id));
+  const audit=ok(await call(U.admin,'/api/v2/audit'));
+  assert.ok(!JSON.stringify(audit).includes('TEST_RESTRICTED_BOUNDARY'));
+  const reportBefore=ok(await call(U.sp2,'/api/v2/reports'));
+  const sum=r=>r.rows.reduce((n,row)=>n+row.n,0);
+  const countBefore=sum(reportBefore);
+  await txn(U.sp1,'G_SUSPEND',{emp_name:'TEST_RESTRICTED_REPORT'});
+  assert.equal(sum(ok(await call(U.sp2,'/api/v2/reports'))),countBefore);
+  const dash=ok(await call(U.sp2,'/api/v2/dashboard'));
+  assert.ok(!JSON.stringify(dash).includes('TEST_RESTRICTED_BOUNDARY'));
+  const ev=await uploadDoc(U.sp1,t.id,'approval_evidence','TEST_restricted.eml');
+  for(const a of x.approvals) ok(await call(U.hairul,`/api/v2/txns/${t.id}/approvals/${a.id}`,{body:{decision:'Approved',approver_name:'TEST Independent Approver',approver_email:'fictional.approver@telecontinent.com.my',evidence_doc_id:ev.id}}));
+  const completed=await full(U.sp1,t.id);
+  assert.ok(completed.keydates.length>0);
+  assert.equal((await call(U.sp2,'/api/v2/keydates/'+completed.keydates[0].id,{body:{done:true}})).s,403);
+});
+
+test('cross-site and oversized requests fail before writes; invalid JSON is rejected', async () => {
+  const headers={'x-dev-user':U.sp1,'content-type':'application/json','origin':'https://untrusted.example'};
+  assert.equal((await fetch(BASE+'/api/v2/txns',{method:'POST',headers,body:'{}'})).status,403);
+  delete headers.origin;
+  const invalid=await fetch(BASE+'/api/v2/txns',{method:'POST',headers,body:'{'});
+  assert.equal(invalid.status,400);
+  const huge=new ReadableStream({start(c){c.enqueue(new Uint8Array(24*1024*1024+1));c.close();}});
+  const rejected=await fetch(BASE+'/api/v2/txns',{method:'POST',headers,body:huge,duplex:'half'});
+  assert.equal(rejected.status,413);
+});
+
+test('legacy register isolates confidential forms and excludes admin and payroll', async () => {
+  const id='cTEST_PRIVATE_'+crypto.randomUUID();
+  ok(await call(U.norwana,'/api/sync',{body:{put:[{t:'case',id,ver:0,data:{id,formId:6,emp:'TEST_PRIVATE_LEGACY'}}]}}));
+  assert.ok(!ok(await call(U.sp2,'/api/data')).rows.some(r=>r.id===id));
+  assert.equal((await call(U.sp2,'/api/sync',{body:{put:[{t:'case',id,ver:1,data:{id,formId:1,emp:'TEST_CHANGED'}}]}})).s,403);
+  assert.equal(ok(await call(U.admin,'/api/data')).rows.length,0);
+  assert.equal(ok(await call(U.pay,'/api/data')).rows.length,0);
+  assert.equal((await call(U.pay,'/api/sync',{body:{del:[{t:'case',id,ver:1}]}})).s,403);
+});
+
+test('delegation accepts only supported scope and active HR delegates', async () => {
+  const body={to_email:U.sp2,start_date:'2026-01-01',end_date:'2030-12-31',scope:'unrelated'};
+  assert.equal((await call(U.norwana,'/api/v2/admin/delegations',{body})).s,400);
+  assert.equal((await call(U.norwana,'/api/v2/admin/delegations',{body:{...body,scope:'letter_vetting',to_email:U.ops}})).s,400);
+});
+
+test('uploads reject mislabeled content and downloads cannot execute HTML',async()=>{
+ const f=new FormData();f.append('file',new Blob(['<script>bad</script>'],{type:'application/pdf'}),'TEST_fake.pdf');f.append('kind','supporting');
+ assert.equal((await call(U.sp1,'/api/v2/docs',{body:f})).s,415);
+ const t=await txn(U.sp1,'C_PROJTR');const d=await uploadDoc(U.sp1,t.id,'supporting');
+ const r=await call(U.sp1,'/api/v2/docs/'+d.id);
+ assert.equal(r.r.headers.get('x-content-type-options'),'nosniff');assert.ok(r.r.headers.get('content-security-policy').includes('sandbox'));
+});
+
+test('specialists can manage their new private key dates without granting another specialist access',async()=>{
+ const id='TEST_KD_'+crypto.randomUUID();
+ const result=ok(await call(U.sp1,'/api/sync',{body:{put:[{t:'kd',id,ver:0,data:{id,note:'TEST private reminder',_hrdesk_owner:U.sp2}}]}}));
+ assert.equal(result.ok[0].data._hrdesk_owner,U.sp1);
+ assert.ok(ok(await call(U.sp1,'/api/data')).rows.some(r=>r.id===id));
+ assert.ok(!ok(await call(U.sp2,'/api/data')).rows.some(r=>r.id===id));
 });

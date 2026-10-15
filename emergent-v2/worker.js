@@ -1,6 +1,7 @@
 // TELECONTINENT HR DESK — Cloudflare Worker backend (D1 + R2 + Cloudflare Access)
 // Every /api route requires a verified identity. Production: Cloudflare Access JWT (Cf-Access-Jwt-Assertion), verified here.
 // Development only (ENVIRONMENT=development and DEV_AUTH=1): fictional test accounts via the x-dev-user header / devuser cookie.
+import { unzipSync } from "fflate";
 import { MATRIX, MOVEMENTS, CATEGORIES, DEV_USERS } from "./seed.js";
 
 const HR_ROLES = ["manager", "lead", "specialist"];
@@ -8,7 +9,7 @@ const SIGNATORY = { name: "Hairul Izwan Mokhti", title: "Manager, Human Resource
 const DEFAULT_VETTING = { specialist: ["lead"], lead: ["manager"], manager: ["lead"] };
 const now = () => new Date().toISOString();
 const uid = (p) => p + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
-const J = (o, s = 200, h = {}) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store", ...h } });
+const J = (o, s = 200, h = {}) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff", ...h } });
 const E = (msg, s = 400, extra = {}) => J({ error: msg, ...extra }, s);
 const parse = (s, d = null) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -94,7 +95,7 @@ const isHR = (u) => HR_ROLES.includes(u.role);
 const need = (cond, msg = "You do not have permission for this action.") => { if (!cond) fail(msg, 403); };
 async function activeDelegators(env, email) {
   const t = now().slice(0, 10);
-  const r = await env.DB.prepare("SELECT d.from_email, u.role FROM hrd_delegations d JOIN hrd_users u ON u.email=d.from_email WHERE d.to_email=? AND d.revoked_at IS NULL AND d.start_date<=? AND d.end_date>=?").bind(email, t, t).all();
+  const r = await env.DB.prepare("SELECT d.from_email, u.role FROM hrd_delegations d JOIN hrd_users u ON u.email=d.from_email WHERE d.to_email=? AND d.revoked_at IS NULL AND d.scope='letter_vetting' AND u.active=1 AND d.start_date<=? AND d.end_date>=?").bind(email, t, t).all();
   return r.results;
 }
 // Who may vet/release a letter prepared by `prep`: rule by preparer role; delegation from a reviewer allowed. Never the preparer.
@@ -177,8 +178,18 @@ async function legacy(env) {
 function legacyRole(u) { return ["manager", "lead", "payroll"].includes(u.role) ? u.role : "specialist"; }
 async function legacyRow(env, L, t, id) { return env.DB.prepare(`SELECT * FROM ${L.table} WHERE ${L.t}=? AND ${L.id}=?`).bind(t, id).first(); }
 const legOut = (L, r) => ({ t: r[L.t], id: r[L.id], ver: r[L.ver], data: parse(r[L.data]), deleted: L.del ? !!r[L.del] : false, by: L.by ? r[L.by] : null });
+async function canSeeLegacy(env,u,L,t,id,data) {
+  if (!isHR(u)) return false;
+  if (["manager","lead"].includes(u.role)) return true;
+  if(t !== "case") {
+    if(!data.caseId) return t === "kd" && data._hrdesk_owner === u.email;
+    const parent=await legacyRow(env,L,"case",data.caseId);
+    return !!parent && canSeeLegacy(env,u,L,"case",data.caseId,parse(parent[L.data],{}));
+  }
+  return data._hrdesk_owner === u.email || (data.sensitivity !== "restricted" && ![6,7,8,13,14,18,21,22].includes(Number(data.formId)));
+}
 async function legacySync(env, u, body) {
-  need(isHR(u) || u.role === "payroll" || u.role === "admin", "Your role cannot change HR Desk records.");
+  need(isHR(u), "Only HR can change the original register; Payroll uses the payroll handover module.");
   const L = await legacy(env);
   const ok = [], conflict = [], notes = [];
   const userRole = async (email) => { const r = email ? await env.DB.prepare("SELECT role FROM hrd_users WHERE email=?").bind(email).first() : null; return r ? r.role : "specialist"; };
@@ -189,14 +200,17 @@ async function legacySync(env, u, body) {
     const curOut = cur ? legOut(L, cur) : null;
     if ((cur ? cur[L.ver] : 0) !== (p.ver || 0)) { conflict.push(curOut || { t: p.t, id: p.id, deleted: true }); continue; }
     const data = p.data, old = curOut ? curOut.data : null;
+    data._hrdesk_owner = old ? old._hrdesk_owner || null : u.email;
+    need(await canSeeLegacy(env,u,L,p.t,p.id,old || data), "This record is restricted.");
+    need(await canSeeLegacy(env,u,L,p.t,p.id,data), "This record is restricted.");
     let reject = null;
     if (u.role === "payroll" && p.t !== "case") reject = "Payroll cannot change key dates or the letter register.";
     if (p.t === "letter") {
       if (old && JSON.stringify(old) !== JSON.stringify(data)) reject = "An issued letter record cannot be changed.";
       if (!old) {
-        const cs = (body.put || []).find((x) => x.t === "case" && x.id === data.caseId);
-        const caseData = cs ? cs.data : parse((await legacyRow(env, L, "case", data.caseId) || {})[L.data], {});
+        const caseData = parse((await legacyRow(env, L, "case", data.caseId) || {})[L.data], {});
         const prepEm = caseData && caseData.draft ? caseData.draft.em : "";
+        if(!caseData.draft || caseData.draft.status !== "approved" || caseData.draft.rbEm !== u.email) reject="The saved case must be approved by the releasing reviewer first.";
         const v = await canVet(env, u, prepEm, await userRole(prepEm));
         if (!v.ok) reject = v.why;
         else { data.rev = u.name || u.email; data.revEm = u.email; }
@@ -204,8 +218,10 @@ async function legacySync(env, u, body) {
     }
     if (p.t === "case" && data.draft) {
       const od = old && old.draft ? old.draft : {};
+      data.draft.em = od.em || u.email;
       if (data.draft.status === "review" && od.status !== "review") data.draft.em = u.email;
       if (["approved", "returned"].includes(data.draft.status) && od.status !== data.draft.status) {
+        if(od.status !== "review") fail("Submit the saved draft for review before a decision.",409);
         if (!(u.role === "manager" || u.role === "lead" || (await activeDelegators(env, u.email)).length)) reject = "Only Lead HR or the HR Manager can review a letter.";
         else { const v = await canVet(env, u, od.em || data.draft.em, await userRole(od.em || data.draft.em)); if (!v.ok) reject = v.why; }
         if (!reject) { data.draft.rb = u.name || u.email; data.draft.rbEm = u.email; }
@@ -215,7 +231,8 @@ async function legacySync(env, u, body) {
     const ver = (cur ? cur[L.ver] : 0) + 1;
     const cols = [L.t, L.id, L.ver, L.data], vals = [p.t, p.id, ver, JSON.stringify(data)];
     if (L.rev) { cols.push(L.rev); vals.push(rev); } if (L.del) { cols.push(L.del); vals.push(0); } if (L.by) { cols.push(L.by); vals.push(u.email); } if (L.at) { cols.push(L.at); vals.push(now()); }
-    await env.DB.prepare(`INSERT OR REPLACE INTO ${L.table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`).bind(...vals).run();
+    const changed=await env.DB.prepare(`INSERT INTO ${L.table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")}) ON CONFLICT(${L.t},${L.id}) DO UPDATE SET ${cols.filter(c=>![L.t,L.id].includes(c)).map(c=>`${c}=excluded.${c}`).join(",")} WHERE ${L.table}.${L.ver}=?`).bind(...vals,cur ? cur[L.ver] : 0).run();
+    if(!changed.meta.changes){conflict.push(legOut(L,await legacyRow(env,L,p.t,p.id)));continue;}
     await audit(env, u.email, cur ? "legacy.update" : "legacy.create", "legacy_" + p.t, p.id, data.ref || null, null, null, null, ver);
     ok.push({ t: p.t, id: p.id, ver, data });
   }
@@ -223,6 +240,7 @@ async function legacySync(env, u, body) {
     const cur = await legacyRow(env, L, d.t, d.id);
     if (!cur) { ok.push({ t: d.t, id: d.id, deleted: true }); continue; }
     const data = parse(cur[L.data], {});
+    need(await canSeeLegacy(env,u,L,d.t,d.id,data), "This record is restricted.");
     const issued = d.t === "letter" || (d.t === "case" && (data.status === "closed" || (data.draft && data.draft.status === "approved")));
     if (issued || cur[L.ver] !== d.ver) { if (issued) notes.push("A finalised or issued record cannot be deleted."); conflict.push(legOut(L, cur)); continue; }
     if (L.del) await env.DB.prepare(`UPDATE ${L.table} SET ${L.del}=1, ${L.ver}=${L.ver}+1${L.rev ? `, ${L.rev}=${rev}` : ""} WHERE ${L.t}=? AND ${L.id}=?`).bind(d.t, d.id).run();
@@ -233,12 +251,14 @@ async function legacySync(env, u, body) {
   return { ok, conflict, notes, rev };
 }
 async function legacyData(env, u, since) {
-  if (!(isHR(u) || u.role === "payroll" || u.role === "admin")) return { rows: [], rev: 0 };
+  if (!isHR(u)) return { rows: [], rev: 0 };
   const L = await legacy(env);
   const q = L.rev ? `SELECT * FROM ${L.table} WHERE ${L.rev}>?` : `SELECT * FROM ${L.table}`;
   const rows = (await (L.rev ? env.DB.prepare(q).bind(since) : env.DB.prepare(q)).all()).results;
   const rev = L.rev ? ((await env.DB.prepare(`SELECT MAX(${L.rev}) m FROM ${L.table}`).first()).m || 0) : 0;
-  return { rows: rows.map((r) => legOut(L, r)).filter((r) => since > 0 || !r.deleted), rev };
+  const allowed=[];
+  for(const row of rows) { const r=legOut(L,row); if((since>0 || !r.deleted) && await canSeeLegacy(env,u,L,r.t,r.id,r.data || {})) allowed.push(r); }
+  return { rows: allowed, rev };
 }
 
 // ---------- v2 workflow API ----------
@@ -387,22 +407,42 @@ async function decide(env, u, id, aid, b) {
 // ---------- documents (private R2) ----------
 const ALLOWED_MIME = { pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", msg: "application/vnd.ms-outlook", eml: "message/rfc822", html: "text/html", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
 const DOC_KINDS = ["original_form", "approval_evidence", "supporting", "letter_draft", "final_letter", "acknowledgement", "payroll_confirmation"];
+function validateFile(ext,bytes) {
+  const b=new Uint8Array(bytes), starts=arr=>arr.every((v,i)=>b[i]===v);
+  let valid=false;
+  if(["docx","xlsx"].includes(ext)) {
+    try {
+      let expanded=0; const names=[];
+      const files=unzipSync(b,{filter:f=>{expanded+=f.originalSize; names.push(f.name);
+        if(expanded>50*1024*1024 || f.originalSize>20*1024*1024 || f.name.split("/").includes("..") || /vbaProject\.bin$/i.test(f.name)) fail("Unsafe document archive.",415);
+        return ["[Content_Types].xml",ext==="docx"?"word/document.xml":"xl/workbook.xml"].includes(f.name);}});
+      valid=!!files["[Content_Types].xml"] && !!files[ext==="docx"?"word/document.xml":"xl/workbook.xml"];
+    } catch(e) {if(e instanceof HttpError)throw e;valid=false;}
+  } else if(ext==="png") valid=starts([137,80,78,71,13,10,26,10]) && b.length>=24;
+  else if(["jpg","jpeg"].includes(ext)) valid=starts([255,216,255]);
+  else if(ext==="pdf") valid=new TextDecoder().decode(b.slice(0,5))==="%PDF-";
+  else if(ext==="msg") valid=starts([208,207,17,224,161,177,26,225]);
+  else if(ext==="eml") valid=/^(?:From|To|Subject|Date|MIME-Version|Received|Return-Path):/im.test(new TextDecoder().decode(b.slice(0,4096)));
+  else if(ext==="html") valid=true; // Only internally generated final HTML is accepted by its dedicated route.
+  if(!valid) fail("File contents do not match the declared document type.",415);
+}
 async function putDoc(env, u, txnId, kind, filename, bytes, mime) {
   if (!env.DOCS) fail("Document storage (R2 binding DOCS) is not configured.", 500);
   if (!DOC_KINDS.includes(kind)) fail("Unknown document type.");
   const ext = String(filename).split(".").pop().toLowerCase();
   if (!ALLOWED_MIME[ext]) fail("This file type is not accepted. Use Word (.docx), PDF, PNG/JPG, email (.msg/.eml) or Excel.", 415);
   if (bytes.byteLength > 15 * 1024 * 1024) fail("File is larger than 15 MB.", 413);
+  validateFile(ext,bytes);
   if (txnId) { const t = await loadTxn(env, txnId); need(canSeeTxn(u, t, await txnApprovals(env, txnId)), "This record is restricted."); }
   const sha = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((x) => x.toString(16).padStart(2, "0")).join("");
   const id = uid("doc");
   const prev = txnId ? await env.DB.prepare("SELECT MAX(version) v FROM hrd_documents WHERE txn_id=? AND filename=? AND kind=?").bind(txnId, filename, kind).first() : null;
   const key = "hrdesk/" + (txnId || "unlinked") + "/" + id + "-" + filename.replace(/[^A-Za-z0-9._-]/g, "_");
-  await env.DOCS.put(key, bytes, { httpMetadata: { contentType: mime || ALLOWED_MIME[ext] }, customMetadata: { uploadedBy: u.email, sha256: sha } });
+  await env.DOCS.put(key, bytes, { httpMetadata: { contentType: ALLOWED_MIME[ext] }, customMetadata: { uploadedBy: u.email, sha256: sha } });
   const keepYears = await getConfig(env, "retention_years", 7);
   const until = new Date(Date.now() + keepYears * 365.25 * 864e5).toISOString().slice(0, 10);
   await env.DB.prepare("INSERT INTO hrd_documents (id,txn_id,kind,filename,mime,size,sha256,r2_key,version,uploaded_by,uploaded_at,retention_until) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-    .bind(id, txnId || null, kind, filename, mime || ALLOWED_MIME[ext], bytes.byteLength, sha, key, ((prev && prev.v) || 0) + 1, u.email, now(), until).run();
+    .bind(id, txnId || null, kind, filename, ALLOWED_MIME[ext], bytes.byteLength, sha, key, ((prev && prev.v) || 0) + 1, u.email, now(), until).run();
   await audit(env, u.email, "document.upload", "document", txnId || id, null, null, { id, kind, filename, sha256: sha }, null, ((prev && prev.v) || 0) + 1);
   return { id, sha256: sha };
 }
@@ -414,7 +454,7 @@ async function getDoc(env, u, id) {
   const o = await env.DOCS.get(d.r2_key);
   if (!o) fail("File missing from storage", 404);
   await audit(env, u.email, "document.download", "document", d.txn_id || id, null, null, { id, filename: d.filename });
-  return new Response(o.body, { headers: { "content-type": d.mime || "application/octet-stream", "content-disposition": 'attachment; filename="' + d.filename.replace(/"/g, "") + '"', "cache-control": "no-store, private" } });
+  return new Response(o.body, { headers: { "content-type": d.mime || "application/octet-stream", "content-disposition": 'attachment; filename="' + d.filename.replace(/[\x00-\x1f\x7f"\\]/g, "_") + '"', "cache-control": "no-store, private", "x-content-type-options": "nosniff", "content-security-policy": "sandbox; default-src 'none'" } });
 }
 
 // ---------- letters ----------
@@ -599,43 +639,61 @@ async function payrollAction(env, u, id, b) {
 }
 
 // ---------- reports / dashboard ----------
-async function dashboard(env, u) {
-  const c = async (sql, ...a) => ((await env.DB.prepare(sql).bind(...a).first()) || {}).n || 0;
-  const ym = now().slice(0, 7);
-  const lettersBy = async (role, st) => c("SELECT COUNT(*) n FROM hrd_letters WHERE status=? AND preparer_role IN (" + role.map(() => "?").join(",") + ")", st, ...role);
-  const rules = await getConfig(env, "vetting_rules", DEFAULT_VETTING);
-  const forRole = (r) => Object.keys(rules).filter((k) => rules[k].includes(r));
-  const out = {
-    new_requests: await c("SELECT COUNT(*) n FROM hrd_transactions WHERE status IN ('draft','submitted')"),
-    pending_hr_validation: await c("SELECT COUNT(*) n FROM hrd_transactions WHERE status IN ('draft','submitted','returned')"),
-    pending_approval: await c("SELECT COUNT(*) n FROM hrd_transactions WHERE status='in_approval'"),
-    letters_awaiting_norwana: await lettersBy(forRole("lead"), "pending_vetting"),
-    letters_awaiting_hairul: await lettersBy(forRole("manager"), "pending_vetting"),
-    letters_returned: await c("SELECT COUNT(*) n FROM hrd_letters WHERE status='returned'"),
-    letters_issued_month: await c("SELECT COUNT(*) n FROM hrd_letters WHERE released_at LIKE ?", ym + "%"),
-    awaiting_payroll: await c("SELECT COUNT(*) n FROM hrd_payroll WHERE status IN ('pending','verified','reversal_required')"),
-    overdue_keydates: await c("SELECT COUNT(*) n FROM hrd_keydates WHERE done=0 AND due_date<?", now().slice(0, 10)),
-    upcoming: (await env.DB.prepare("SELECT k.*, t.ref, t.sensitivity FROM hrd_keydates k LEFT JOIN hrd_transactions t ON t.id=k.txn_id WHERE k.done=0 AND k.due_date<=? ORDER BY k.due_date LIMIT 12").bind(new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10)).all()).results.filter((k) => k.sensitivity !== "restricted" || ["manager", "lead"].includes(u.role)),
-    by_category: (await env.DB.prepare("SELECT m.category, COUNT(*) n FROM hrd_transactions t JOIN hrd_movement_types m ON m.code=t.movement_code WHERE t.created_at LIKE ? GROUP BY m.category").bind(ym + "%").all()).results
-  };
-  return out;
+function visibility(u,alias="t") {
+  if(["manager","lead"].includes(u.role)) return {sql:"1=1",args:[]};
+  if(u.role === "admin") return {sql:`${alias}.sensitivity!='restricted'`,args:[]};
+  if(u.role === "specialist") return {sql:`(${alias}.sensitivity!='restricted' OR ${alias}.owner=? OR ${alias}.originator=?)`,args:[u.email,u.email]};
+  return {sql:"0=1",args:[]};
 }
-async function reports(env, q) {
-  const from = q.get("from") || "0000", to = q.get("to") || "9999";
-  const rows = (await env.DB.prepare("SELECT substr(t.created_at,1,7) month, m.category, m.name movement, t.status, COUNT(*) n FROM hrd_transactions t JOIN hrd_movement_types m ON m.code=t.movement_code WHERE substr(t.created_at,1,10)>=? AND substr(t.created_at,1,10)<=? GROUP BY 1,2,3,4 ORDER BY 1 DESC,2,3").bind(from, to).all()).results;
-  const turnaround = (await env.DB.prepare("SELECT m.category, AVG(julianday(l.released_at)-julianday(t.created_at)) days, COUNT(*) n FROM hrd_letters l JOIN hrd_transactions t ON t.id=l.txn_id JOIN hrd_movement_types m ON m.code=t.movement_code WHERE l.released_at IS NOT NULL GROUP BY 1").all()).results;
-  return { rows, turnaround, categories: CATEGORIES };
+async function dashboard(env,u) {
+  const v=visibility(u); const q=async(sql,args=[]) => (await env.DB.prepare(sql).bind(...args,...v.args).all()).results;
+  const count=async(table,condition,args=[]) => (await q(`SELECT COUNT(*) n FROM ${table} WHERE ${condition} AND ${v.sql}`,args))[0].n;
+  const tx="hrd_transactions t", letters="hrd_letters l JOIN hrd_transactions t ON t.id=l.txn_id";
+  const keys="hrd_keydates k JOIN hrd_transactions t ON t.id=k.txn_id",ym=now().slice(0,7);
+  const rules=await getConfig(env,"vetting_rules",DEFAULT_VETTING);
+  const vetted=async role=>{const roles=Object.keys(rules).filter(k=>rules[k].includes(role));return roles.length ? count(letters,`l.status='pending_vetting' AND l.preparer_role IN (${roles.map(()=>"?").join(",")})`,roles):0;};
+  return {
+    new_requests:await count(tx,"t.status IN ('draft','submitted')"),
+    pending_hr_validation:await count(tx,"t.status IN ('draft','submitted','returned')"),
+    pending_approval:await count(tx,"t.status='in_approval'"),
+    letters_awaiting_norwana:await vetted("lead"), letters_awaiting_hairul:await vetted("manager"),
+    letters_returned:await count(letters,"l.status='returned'"),
+    letters_issued_month:await count(letters,"l.released_at LIKE ?",[ym+"%"]),
+    awaiting_payroll:u.role === "payroll" ? (await payrollList(env,u,new URLSearchParams())).rows.filter(r=>["pending","verified","reversal_required"].includes(r.status)).length : await count("hrd_payroll p JOIN hrd_transactions t ON t.id=p.txn_id","p.status IN ('pending','verified','reversal_required')"),
+    overdue_keydates:await count(keys,"k.done=0 AND k.due_date<?",[now().slice(0,10)]),
+    upcoming:await q(`SELECT k.*,t.ref FROM ${keys} WHERE k.done=0 AND k.due_date<=? AND ${v.sql} ORDER BY k.due_date LIMIT 12`,[new Date(Date.now()+45*864e5).toISOString().slice(0,10)]),
+    by_category:await q(`SELECT m.category,COUNT(*) n FROM ${tx} JOIN hrd_movement_types m ON m.code=t.movement_code WHERE t.created_at LIKE ? AND ${v.sql} GROUP BY m.category`,[ym+"%"])
+  };
+}
+async function reports(env,u,q) {
+  const v=visibility(u);const from=q.get("from")||"0000",to=q.get("to")||"9999";
+  const rows=(await env.DB.prepare(`SELECT substr(t.created_at,1,7) month,m.category,m.name movement,t.status,COUNT(*) n FROM hrd_transactions t JOIN hrd_movement_types m ON m.code=t.movement_code WHERE substr(t.created_at,1,10)>=? AND substr(t.created_at,1,10)<=? AND ${v.sql} GROUP BY 1,2,3,4 ORDER BY 1 DESC,2,3`).bind(from,to,...v.args).all()).results;
+  const turnaround=(await env.DB.prepare(`SELECT m.category,AVG(julianday(l.released_at)-julianday(t.created_at)) days,COUNT(*) n FROM hrd_letters l JOIN hrd_transactions t ON t.id=l.txn_id JOIN hrd_movement_types m ON m.code=t.movement_code WHERE l.released_at IS NOT NULL AND ${v.sql} GROUP BY 1`).bind(...v.args).all()).results;
+  return {rows,turnaround,categories:CATEGORIES};
 }
 
 // ---------- router ----------
 async function route(req, env, url) {
+  if (["POST","PUT","PATCH","DELETE"].includes(req.method)) {
+    const origin=req.headers.get("origin");
+    if((origin && origin !== url.origin) || req.headers.get("sec-fetch-site") === "cross-site") fail("Cross-origin writes are forbidden.",403);
+    const limit=24*1024*1024;
+    if(Number(req.headers.get("content-length"))>limit) fail("Request is too large.",413);
+    if(req.body) {
+      const reader=req.body.getReader(); const chunks=[]; let size=0;
+      for(;;) { const {done,value}=await reader.read(); if(done) break; size+=value.byteLength;
+        if(size>limit) {await reader.cancel();fail("Request is too large.",413);} chunks.push(value); }
+      const bytes=new Uint8Array(size); let offset=0; for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
+      req=new Request(req,{body:bytes});
+    }
+  }
   const p = url.pathname, M = req.method;
   // Seed fictional local accounts only in explicit development mode.
   if (devMode(env)) await ensureSeed(env);
   const u = await identify(req, env);
   if (!devMode(env)) await ensureSeed(env);
   if (p === "/api/health") { const r = await env.DB.prepare("SELECT 1 ok").first(); const L = await legacy(env); return J({ ok: !!r, db: true, r2: !!env.DOCS, legacyTable: L.table, legacyCompatible: L.compatible, environment: env.ENVIRONMENT || "production" }); }
-  const body = M === "POST" || M === "PUT" ? (req.headers.get("content-type") || "").includes("application/json") ? await req.json().catch(() => ({})) : null : null;
+  const body = M === "POST" || M === "PUT" ? (req.headers.get("content-type") || "").includes("application/json") ? await req.json().catch(() => {fail("Invalid JSON.",400)}) : null : null;
   // legacy contract used by the original HR Desk
   if (p === "/api/me") return J({ email: u.email, name: u.name, role: legacyRole(u), v2role: u.role, dev: devMode(env) });
   if (p === "/api/data" && M === "GET") return J(await legacyData(env, u, Number(url.searchParams.get("since") || 0)));
@@ -645,7 +703,7 @@ async function route(req, env, url) {
     const ref = url.searchParams.get("ref"); const L = await legacy(env);
     const rows = (await env.DB.prepare(`SELECT ${L.data} d FROM ${L.table} WHERE ${L.t}='letter'`).all()).results.map((r) => parse(r.d, {}));
     const rec = rows.find((r) => r.ref === ref);
-    if (!rec || !isHR(u)) fail("Signature is only available for an issued letter in the register.", 403);
+    if (!rec || !await canSeeLegacy(env,u,L,"letter",ref,rec)) fail("Signature is only available for an issued letter in the register.", 403);
     const o = env.DOCS ? await env.DOCS.get("private/signature/current") : null;
     const pol = await getConfig(env, "signature_policy", { mode: "image" });
     if (!o || pol.mode !== "image") return J({ available: false });
@@ -691,13 +749,14 @@ async function route(req, env, url) {
   if (a === "txns" && b && c === "letters" && M === "POST") return J(await createLetter(env, u, b, body || {}));
   if (a === "approvals" && b === "mine") {
     need(u.role === "approver" || isHR(u));
-    const rows = (await env.DB.prepare("SELECT a.*, t.ref, t.emp_name, t.status txn_status, t.originator, m.name movement FROM hrd_approvals a JOIN hrd_transactions t ON t.id=a.txn_id JOIN hrd_movement_types m ON m.code=t.movement_code WHERE a.decision='Pending' AND t.status='in_approval' ORDER BY t.updated_at").all()).results;
+    const rows = (await env.DB.prepare("SELECT a.*, t.ref, t.emp_name, t.status txn_status, t.originator, t.owner, t.sensitivity, m.name movement FROM hrd_approvals a JOIN hrd_transactions t ON t.id=a.txn_id JOIN hrd_movement_types m ON m.code=t.movement_code WHERE a.decision='Pending' AND t.status='in_approval' ORDER BY t.updated_at").all()).results;
     const first = {}; rows.forEach((r) => { if (!first[r.txn_id] || first[r.txn_id].step_no > r.step_no) first[r.txn_id] = r; });
-    return J({ rows: Object.values(first).filter((r) => isHR(u) || (u.role === "approver" && r.approver_email === u.email && r.originator !== u.email)) });
+    return J({ rows: Object.values(first).filter((r) => (isHR(u) && canSeeTxn(u, r, [])) || (u.role === "approver" && r.approver_email === u.email && r.originator !== u.email)) });
   }
   if (a === "docs" && !b && M === "POST") {
     const fd = await req.formData(); const f = fd.get("file");
     if (!f || typeof f === "string") fail("No file received.");
+    if(["final_letter","letter_draft"].includes(fd.get("kind")) || /\.html?$/i.test(f.name)) fail("Use the letter workflow to generate official documents.",403);
     return J(await putDoc(env, u, fd.get("txn_id") || null, String(fd.get("kind") || "supporting"), f.name, await f.arrayBuffer(), f.type));
   }
   if (a === "docs" && b && M === "GET") return getDoc(env, u, b);
@@ -710,8 +769,9 @@ async function route(req, env, url) {
   if (a === "letters" && b && c === "action" && M === "POST") return J(await letterAction(env, u, b, body || {}));
   if (a === "letters" && b && c === "signature" && M === "GET") return signature(env, u, b);
   if (a === "letters" && b && c === "final" && M === "POST") {
-    const l = await letterRow(env, b); need(isHR(u));
+    const l = await letterRow(env, b); need(isHR(u)); need(canSeeTxn(u, await loadTxn(env,l.txn_id), []), "This record is restricted.");
     if (!["released", "acknowledged"].includes(l.status)) fail("Only a released letter can be filed as final.", 409);
+    need(u.email===l.released_by,"Only the releasing reviewer can file the final output.");
     if (l.final_doc_id && l.final_docx_id) return J({ ok: true, already: true });
     const bytes = (s) => Uint8Array.from(atob(s), (ch) => ch.charCodeAt(0));
     const fname = l.ref.replace(/\//g, "-");
@@ -727,9 +787,9 @@ async function route(req, env, url) {
     const rows = (await env.DB.prepare("SELECT k.*, t.ref, t.sensitivity, t.owner, t.originator, t.status txn_status FROM hrd_keydates k LEFT JOIN hrd_transactions t ON t.id=k.txn_id ORDER BY k.done, k.due_date").all()).results;
     return J({ rows: rows.filter((r) => !r.txn_id || canSeeTxn(u, r, [])) });
   }
-  if (a === "keydates" && b && M === "POST") { need(isHR(u)); const k = await env.DB.prepare("SELECT * FROM hrd_keydates WHERE id=?").bind(b).first(); if (!k) fail("Not found", 404); await env.DB.prepare("UPDATE hrd_keydates SET done=?, done_by=? WHERE id=?").bind(body.done ? 1 : 0, u.email, b).run(); await audit(env, u.email, "keydate." + (body.done ? "done" : "reopened"), "keydate", k.txn_id, null, { done: k.done }, { done: !!body.done }); return J({ ok: true }); }
-  if (a === "reports") { need(["manager", "lead", "specialist", "admin"].includes(u.role)); return J(await reports(env, url.searchParams)); }
-  if (a === "audit") { need(["manager", "lead", "admin"].includes(u.role)); const rows = (await env.DB.prepare("SELECT * FROM hrd_audit ORDER BY id DESC LIMIT 500").all()).results; return J({ rows }); }
+  if (a === "keydates" && b && M === "POST") { need(isHR(u)); const k = await env.DB.prepare("SELECT * FROM hrd_keydates WHERE id=?").bind(b).first(); if (!k) fail("Not found", 404); if(k.txn_id) need(canSeeTxn(u, await loadTxn(env,k.txn_id), []), "This record is restricted."); await env.DB.prepare("UPDATE hrd_keydates SET done=?, done_by=? WHERE id=?").bind(body.done ? 1 : 0, u.email, b).run(); await audit(env, u.email, "keydate." + (body.done ? "done" : "reopened"), "keydate", k.txn_id, null, { done: k.done }, { done: !!body.done }); return J({ ok: true }); }
+  if (a === "reports") { need(["manager", "lead", "specialist", "admin"].includes(u.role)); return J(await reports(env, u, url.searchParams)); }
+  if (a === "audit") { need(["manager", "lead", "admin"].includes(u.role)); const rows = (await env.DB.prepare("SELECT * FROM hrd_audit ORDER BY id DESC LIMIT 500").all()).results; return J({ rows: u.role === "admin" ? rows.filter(r => ["user","config","matrix","cycle","delegation","signature"].includes(r.entity)) : rows }); }
   // administration
   if (a === "admin") {
     const isAdm = u.role === "admin";
@@ -760,7 +820,10 @@ async function route(req, env, url) {
       const from = String(body.from_email || u.email).toLowerCase(), to = String(body.to_email || "").toLowerCase();
       if (from !== u.email && !isAdm && u.role !== "manager") fail("You can only delegate your own authority.", 403);
       if (!to || from === to || !body.start_date || !body.end_date || body.end_date < body.start_date) fail("Enter the delegate and a valid period.");
-      const tgt = await env.DB.prepare("SELECT role FROM hrd_users WHERE email=? AND active=1").bind(to).first(); if (!tgt) fail("The delegate must be an active HR Desk user.");
+      if ((body.scope || "letter_vetting") !== "letter_vetting") fail("Unsupported delegation scope.");
+      const tgt = await env.DB.prepare("SELECT role FROM hrd_users WHERE email=? AND active=1").bind(to).first(); if (!tgt || !HR_ROLES.includes(tgt.role)) fail("The delegate must be an active HR user.");
+      const delegator = await env.DB.prepare("SELECT role FROM hrd_users WHERE email=? AND active=1").bind(from).first();
+      if (!delegator || !["lead","manager"].includes(delegator.role)) fail("Only active Lead HR or HR Manager authority can be delegated.");
       const id = uid("dl");
       await env.DB.prepare("INSERT INTO hrd_delegations (id,from_email,to_email,scope,start_date,end_date,reason,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(id, from, to, body.scope || "letter_vetting", body.start_date, body.end_date, body.reason || null, u.email, now()).run();
       await audit(env, u.email, "delegation.create", "delegation", id, null, null, body);
@@ -784,6 +847,8 @@ async function route(req, env, url) {
       const fd = await req.formData(); const f = fd.get("file");
       if (!f || typeof f === "string" || !/^image\/png$/.test(f.type)) fail("Upload a PNG image.", 415);
       const buf = await f.arrayBuffer(); if (buf.byteLength > 1024 * 1024) fail("Signature image must be under 1 MB.", 413);
+      validateFile("png",buf);
+      if(!env.DOCS) fail("Private document storage is not configured.",503);
       const prev = await env.DOCS.get("private/signature/current");
       if (prev) await env.DOCS.put("private/signature/archive-" + Date.now(), await prev.arrayBuffer(), { httpMetadata: { contentType: "image/png" } });
       await env.DOCS.put("private/signature/current", buf, { httpMetadata: { contentType: "image/png" }, customMetadata: { uploadedBy: u.email } });

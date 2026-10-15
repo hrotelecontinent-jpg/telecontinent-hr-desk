@@ -1,14 +1,22 @@
-# Telecontinent HR Desk
+# Telecontinent HR Desk v2 review application
 
-Folder layout = GitHub repo root.
+This directory is the **v2 application root**, imported alongside the unchanged production application one level above. Start with [PREPARATION_STATUS.md](docs/PREPARATION_STATUS.md) for current results and remaining staging requirements; the parent [integration review](../V2_INTEGRATION_REVIEW.md) describes the import boundaries.
 
-- `secure-app/index.html`: the complete app page (original HR Desk + workflow modules). Served by the Worker behind Cloudflare Access.
-- `worker.js` + `seed.js`: the backend (API, roles, approvals, letters, payroll, documents, audit).
-- `wrangler.jsonc`: production and staging configuration.
-- `migrations/`: D1 SQL migrations (additive only).
-- `secure-app-src/` + `tools/build-secure-app.js`: the source the page is built from. After you edit them, run `node tools/build-secure-app.js`.
-- `backup/original/`: your original HTML, unchanged.
-- `docs/`: DEPLOYMENT (incl. rollback), CHANGES, FEATURE_MATRIX, TEST_RESULTS, MOVEMENT_REGISTER, and your two source documents.
-- `tests/`: automated tests.
+```sh
+npm ci
+npm run build
+npm run db:local
+npm run dev
+# In another terminal in this directory:
+npm test
+npm run test:migration
+```
 
-`setup-only/index.html` and the root `index.html` from your existing repo are not included, because I did not receive them. Leave them as they are in GitHub, or delete the root `index.html` if it is a public copy of the standalone app.
+Tests target local simulators and fictional accounts only. Never deploy `wrangler.dev.jsonc`. Run `npm run check:worker` for a bundle dry-run without deployment. See the status document for browser testing and offline migration tooling.
+
+- `secure-app/` is the generated page; edit `secure-app-src/` and rebuild.
+- `worker.js`, `seed.js`, `migrations/` implement the backend and workflow catalog.
+- `backup/original/` is the original source with its embedded signature withheld from Git. Despite the upstream filename, it is sanitized. The exact actual image is preserved securely outside Git for private R2 migration; no image transformation was performed.
+- `docs/` includes supplier policy and deployment documents. Supplier instructions are historical reference, not authorization to change production.
+
+All 22 original form definitions and added workflow modules are retained. Existing production files remain unchanged; do not merge or deploy until staging validation and the documented release prerequisites are complete.

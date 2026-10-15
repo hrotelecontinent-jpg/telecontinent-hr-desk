@@ -1,5 +1,7 @@
 # Emergent v2 integration review
 
+**Update:** The subsequent security fixes, offline data-migration tooling and expanded validation are documented in [PREPARATION_STATUS.md](emergent-v2/docs/PREPARATION_STATUS.md). Initial findings below are retained as review history; consult that status for current completion and remaining live-staging requirements.
+
 This branch imports `Telecontinent_HR_Desk_v2.zip` into `emergent-v2/`, with that directory as the v2 application root. Every file that existed on `main` is preserved byte-for-byte. The production entrypoint and Wrangler configuration remain unchanged. No deployment, remote migration, production database query, or signature upload was performed.
 
 ## Layout and changes

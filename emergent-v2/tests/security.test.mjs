@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 // Load a test-only named export without changing the Worker's deployment exports.
 const source = (await readFile(new URL('../worker.js', import.meta.url), 'utf8'))
+  .replace('"fflate"', JSON.stringify(import.meta.resolve('fflate')))
   .replace('"./seed.js"', JSON.stringify(new URL('../seed.js', import.meta.url).href));
 const { default: worker, verifyAccessJwt } = await import('data:text/javascript;base64,' +
   Buffer.from(source + '\nexport { verifyAccessJwt };').toString('base64'));
@@ -53,7 +54,8 @@ test('static pages fail closed for denied users and database errors', async () =
   const request = () => new Request('https://example.test/', { headers: { 'cf-access-jwt-assertion': validToken } });
   const denied = await worker.fetch(request(), { ...production, DB: { prepare: () => ({ bind: () => ({ first: async () => null }) }) } });
   assert.equal(denied.status, 403); assert.equal(served, false);
-  const failed = await worker.fetch(request(), production);
+  const originalError=console.error; console.error=()=>{};
+  let failed; try {failed = await worker.fetch(request(), production);}finally{console.error=originalError;}
   assert.equal(failed.status, 500); assert.equal(served, false);
   assert.deepEqual(await failed.json(), { error: 'Server error. Contact the HR Desk administrator.' });
 });
