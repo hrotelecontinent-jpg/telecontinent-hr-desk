@@ -1,8 +1,11 @@
 
 {
-  "name": "telecontinent-hr-desk-secure",
+  "name": "telecontinent-hr-desk",
+  "main": "./worker.js",
   "compatibility_date": "2026-10-15",
   "assets": {
-    "directory": "./setup-only"
+    "directory": "./setup-only",
+    "binding": "ASSETS",
+    "run_worker_first": true
   }
 }
