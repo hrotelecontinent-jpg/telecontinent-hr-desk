@@ -3,9 +3,18 @@
   "name": "telecontinent-hr-desk",
   "main": "./worker.js",
   "compatibility_date": "2026-10-15",
+
   "assets": {
     "directory": "./setup-only",
     "binding": "ASSETS",
     "run_worker_first": true
-  }
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "telecontinent-hr-desk-db",
+      "database_id": "7080900a-e621-4ad2-a3ac-c93c659c6a70"
+    }
+  ]
 }
