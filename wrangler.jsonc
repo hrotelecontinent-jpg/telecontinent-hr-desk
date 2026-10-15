@@ -1,0 +1,8 @@
+
+{
+  "name": "telecontinent-hr-desk-secure",
+  "compatibility_date": "2026-10-15",
+  "assets": {
+    "directory": "./setup-only"
+  }
+}
